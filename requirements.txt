@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+redis
+httpx
+pytest
+pytest-asyncio
+nats-py

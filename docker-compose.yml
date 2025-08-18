@@ -1,0 +1,26 @@
+services:
+  app:
+    build: .
+    container_name: meeting-agent-app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - .:/code
+    working_dir: /code
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+      - nats
+
+  redis:
+    image: redis:7
+    container_name: meeting-agent-redis
+    ports:
+      - "6379:6379"
+
+  nats:
+    image: nats:2.9
+    container_name: meeting-agent-nats
+    ports:
+      - "4222:4222"
+      - "8222:8222"
