@@ -1,33 +1,48 @@
-import pytest
 import asyncio
+import json
+import pytest
 from nats.aio.client import Client as NATS
-from app.pipeline import process_meeting
-from app.api.nats_handler import IN_SUBJECT, OUT_SUBJECT, NATS_URL, run_nats
+
+from app.pipeline import MeetingPipeline
+from app.api.nats_handler import run_nats
+
+IN_SUBJECT = "speech.in"
+OUT_SUBJECT = "speech.out"
+NATS_URL = "nats://nats:4222"   # тот же URL, что и в nats_handler.py
+
 
 @pytest.mark.asyncio
 async def test_nats_pipeline():
-    # Запускаем NATS клиент для теста
+    """
+    Тест проверяет, что сообщение, отправленное в speech.in,
+    проходит через pipeline и возвращает summary в speech.out.
+    """
+    pipeline = MeetingPipeline()
     nc = NATS()
     await nc.connect(NATS_URL)
 
-    # Запускаем подписку пайплайна (имитация старта сервиса)
-    asyncio.create_task(run_nats())
+    # запускаем run_nats в фоне
+    asyncio.create_task(run_nats(pipeline))
 
-    # Future для результата
-    future = asyncio.get_event_loop().create_future()
+    # future для ответа
+    response_future = asyncio.get_event_loop().create_future()
 
-    async def message_handler(msg):
-        result = msg.data.decode()
-        future.set_result(result)
+    async def response_handler(msg):
+        response = json.loads(msg.data.decode())
+        response_future.set_result(response)
 
-    await nc.subscribe(OUT_SUBJECT, cb=message_handler)
+    # подписываемся на выходной топик
+    await nc.subscribe(OUT_SUBJECT, cb=response_handler)
 
-    # Отправляем тестовое сообщение
-    await nc.publish(IN_SUBJECT, b"hello from test")
+    # публикуем тестовое сообщение
+    payload = {"text": "Привет мир"}
+    await nc.publish(IN_SUBJECT, json.dumps(payload).encode())
 
-    # Ждём ответа (не более 3 секунд)
-    result = await asyncio.wait_for(future, timeout=3)
+    # ждём ответа
+    response = await asyncio.wait_for(response_future, timeout=3)
 
-    # Проверяем
-    assert "HELLO FROM TEST" in result
     await nc.close()
+
+    assert "chunks" in response
+    assert "summary" in response
+    assert response["summary"] != ""
