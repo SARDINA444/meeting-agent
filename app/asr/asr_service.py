@@ -1,10 +1,30 @@
-def fake_asr(text: str) -> str:
-    return text
+import asyncio
+from typing import List
 
 
-def fake_asr_split(text: str, chunk_size: int = 20):
+class ASRService:
     """
-    Имитация ASR: режем текст на чанки фиксированного размера.
-    Например, из длинной строки получаем список коротких фрагментов.
+    Заглушка для ASR (распознавания речи).
+    Имитирует нарезку аудио на чанки и их "распознавание".
     """
-    return [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
+
+    def __init__(self, chunk_size: int = 5):
+        self.chunk_size = chunk_size
+
+    async def transcribe(self, audio: str) -> List[str]:
+        """
+        Имитация распознавания речи.
+        audio: строка, имитирующая входное аудио (например, "это длинная запись...")
+        Возвращает список чанков-транскрибированного текста.
+        """
+        await asyncio.sleep(0.1)  # имитация задержки
+        words = audio.split()
+        chunks = [
+            " ".join(words[i : i + self.chunk_size])
+            for i in range(0, len(words), self.chunk_size)
+        ]
+        return chunks
+
+
+# Создаём глобальный объект ASR для использования в main.py
+asr_service = ASRService()
