@@ -1,30 +1,23 @@
-import asyncio
-from typing import List
+from app.summarizer.summarizer import simple_summarizer, critic
+from app.reducer.reducer import Reducer
+from ..ingest.redis_backend import RedisBackend
 
+reducer = Reducer()
+state_backend = RedisBackend()
 
-class ASRService:
-    """
-    Заглушка для ASR (распознавания речи).
-    Имитирует нарезку аудио на чанки и их "распознавание".
-    """
+def process_chunks(chunks: list[str], state_key="session1"):
+    for chunk in chunks:
+        # делаем summary для чанка
+        summary = simple_summarizer([chunk], max_len=100)
 
-    def __init__(self, chunk_size: int = 5):
-        self.chunk_size = chunk_size
+        # проверяем Critic
+        critic_result = critic(summary)
 
-    async def transcribe(self, audio: str) -> List[str]:
-        """
-        Имитация распознавания речи.
-        audio: строка, имитирующая входное аудио (например, "это длинная запись...")
-        Возвращает список чанков-транскрибированного текста.
-        """
-        await asyncio.sleep(0.1)  # имитация задержки
-        words = audio.split()
-        chunks = [
-            " ".join(words[i : i + self.chunk_size])
-            for i in range(0, len(words), self.chunk_size)
-        ]
-        return chunks
+        # обновляем Reducer
+        rolling_summary = reducer.reduce(summary, critic_result)
 
+        # сохраняем состояние
+        state_backend.save_state(state_key, reducer.get_state())
 
-# Создаём глобальный объект ASR для использования в main.py
-asr_service = ASRService()
+    # итоговое состояние
+    return reducer.get_state()

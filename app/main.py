@@ -1,34 +1,53 @@
 from fastapi import FastAPI
-from app.asr.asr_service import asr_service
+from pydantic import BaseModel
+from typing import List
+
 from app.summarizer.summarizer import simple_summarizer, critic
+from app.reducer.reducer import Reducer
+from .ingest.redis_backend import RedisBackend
 
-app = FastAPI(title="Meeting Agent")
+app = FastAPI(title="RAG Pipeline")
+
+# Глобальные объекты (можно заменить на зависимости через Depends)
+reducer = Reducer()
+state_backend = RedisBackend()
 
 
-@app.get("/")
-async def root():
-    return {"message": "Meeting Agent API is running"}
-
-
-@app.post("/asr/")
-async def asr_endpoint(audio: str):
-    """
-    Эндпоинт: имитация распознавания аудио → чанки текста.
-    """
-    chunks = await asr_service.transcribe(audio)
-    return {"chunks": chunks}
+class ChunksRequest(BaseModel):
+    chunks: List[str]
+    session_id: str = "default_session"
 
 
 @app.post("/process/")
-async def process_endpoint(audio: str):
+def process_chunks(req: ChunksRequest):
     """
-    Эндпоинт: полный пайплайн (ASR → Summarizer → Critic).
+    API: принимает список чанков текста, обрабатывает их пайплайном,
+    сохраняет rolling summary + open_items в Redis.
     """
-    chunks = await asr_service.transcribe(audio)
-    summary = simple_summarizer(chunks)
-    critic_result = critic(summary)
+    for chunk in req.chunks:
+        # Summarizer
+        summary = simple_summarizer([chunk], max_len=100)
+
+        # Critic
+        critic_result = critic(summary)
+
+        # Reducer
+        rolling_summary = reducer.reduce(summary, critic_result)
+
+        # Persist (Redis)
+        state_backend.save_state(req.session_id, reducer.get_state())
+
     return {
-        "chunks": chunks,
-        "summary": summary,
-        "critic": critic_result,
+        "session_id": req.session_id,
+        "rolling_summary": reducer.rolling_summary,
+        "open_items": reducer.open_items,
     }
+
+
+@app.get("/state/{session_id}")
+def get_state(session_id: str):
+    """
+    API: возвращает сохранённое состояние по session_id
+    """
+    state = state_backend.load_state(session_id)
+    return state or {"error": "no state found"}
