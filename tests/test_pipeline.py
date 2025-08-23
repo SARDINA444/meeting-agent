@@ -1,39 +1,24 @@
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app
-from pathlib import Path
 
 client = TestClient(app)
 
 
-@pytest.fixture
-def mock_audio_file(tmp_path):
+def test_process_pipeline_advanced_summarizer():
     """
-    Fixture создаёт тестовый текстовый файл, имитирующий аудиофайл.
+    Проверяем полный пайплайн без ASR с advanced_summarizer:
+    - текст передаётся напрямую через JSON
+    - Summarizer -> Critic -> Reducer -> Finalizer -> Integrators
     """
-    file_path = tmp_path / "mock_audio.txt"
-    file_path.write_text(
-        "Привет мир. Это тестовый файл для пайплайна. Нужно проверить задачи."
-    )
-    return str(file_path)
+    text = "Привет мир. Это тестовый текст для пайплайна. Нужно проверить задачи."
 
-
-def test_process_pipeline(mock_audio_file):
-    """
-    Проверяем полный пайплайн:
-    - транскрипция (ASR)
-    - суммаризация
-    - редьюсер
-    - финализатор
-    - интеграторы Calendar/Jira
-    """
-    response = client.post("/process", json={"audio_path": mock_audio_file})
+    response = client.post("/process", json={"text": text})
     assert response.status_code == 200
 
     data = response.json()
 
-    # Проверяем наличие основных полей
-    assert "transcription" in data
+    # Проверяем наличие ключевых полей
     assert "chunks" in data
     assert "summaries" in data
     assert "reduced_summary" in data
@@ -42,12 +27,22 @@ def test_process_pipeline(mock_audio_file):
     assert "jira_payload" in data
 
     # Проверяем, что summary не пустой
+    for summary in data["summaries"]:
+        assert len(summary) > 0
     assert len(data["final_summary"]) > 0
 
     # Проверяем интеграционные payload'ы
     assert "calendar_event" in data["calendar_payload"]
     assert "jira_ticket" in data["jira_payload"]
 
-    # Правильный доступ к задачам
+    # Проверяем наличие задач в Calendar и Jira
     assert len(data["calendar_payload"]["calendar_event"]["tasks"]) > 0
     assert len(data["jira_payload"]["jira_ticket"]["open_items"]) > 0
+
+    # Проверка правильного разбиения текста на чанки
+    expected_chunks = [
+        "Привет мир",
+        "Это тестовый текст для пайплайна",
+        "Нужно проверить задачи"
+    ]
+    assert data["chunks"] == expected_chunks
