@@ -15,5 +15,5 @@ docker-compose up
 
 ## Тесты
 ```bash
-docker-compose exec app pytest tests/test_reducer.py -v
+docker-compose exec app pytest tests/test_pipeline.py -v
 ```

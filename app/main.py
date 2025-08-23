@@ -2,52 +2,77 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List
 
-from app.summarizer.summarizer import simple_summarizer, critic
+from app.asr.asr_service import transcribe_audio
+from app.summarizer.summarizer import simple_summarizer, Critic
 from app.reducer.reducer import Reducer
-from .ingest.redis_backend import RedisBackend
+from app.finalizer.finalizer import Finalizer, FinalCritic
+from .integrators.calendar_jira_api import CalendarJiraAPI
 
-app = FastAPI(title="RAG Pipeline")
+app = FastAPI(title="AI Processing Pipeline")
 
-# Глобальные объекты (можно заменить на зависимости через Depends)
-reducer = Reducer()
-state_backend = RedisBackend()
+# --- Модели запросов/ответов ---
+class AudioRequest(BaseModel):
+    audio_path: str
 
 
-class ChunksRequest(BaseModel):
+class PipelineResponse(BaseModel):
+    transcription: str
     chunks: List[str]
-    session_id: str = "default_session"
+    summaries: List[str]
+    reduced_summary: str
+    final_summary: str
+    calendar_payload: dict
+    jira_payload: dict
 
 
-@app.post("/process/")
-def process_chunks(req: ChunksRequest):
+@app.post("/process", response_model=PipelineResponse)
+async def process_audio(req: AudioRequest):
     """
-    API: принимает список чанков текста, обрабатывает их пайплайном,
-    сохраняет rolling summary + open_items в Redis.
+    Полный пайплайн: ASR -> Summarizer -> Critic -> Reducer -> Finalizer -> Integrators
     """
-    for chunk in req.chunks:
-        # Summarizer
-        summary = simple_summarizer([chunk], max_len=100)
 
-        # Critic
-        critic_result = critic(summary)
+    # 1. ASR
+    transcription = transcribe_audio(req.audio_path)
 
-        # Reducer
-        rolling_summary = reducer.reduce(summary, critic_result)
+    # Разбиваем текст на чанки (по предложениям)
+    chunks = [c.strip() for c in transcription.split(".") if c.strip()]
+    summaries = []
 
-        # Persist (Redis)
-        state_backend.save_state(req.session_id, reducer.get_state())
+    # 2. Инициализация компонентов
+    critic = Critic()
+    reducer = Reducer()
+    finalizer = Finalizer()
+    final_critic = FinalCritic()
 
-    return {
-        "session_id": req.session_id,
-        "rolling_summary": reducer.rolling_summary,
-        "open_items": reducer.open_items,
-    }
+    # 3. Summarizer + Critic + Reducer
+    for chunk in chunks:
+        summary = simple_summarizer(chunk)
+        critic.validate(summary)  # базовая проверка
+        summaries.append(summary)
+        reducer.add_chunk_summary(summary, open_item=f"todo: проверить '{chunk[:20]}'")
 
+    # 4. Reducer: rolling summary
+    reducer_state = reducer.get_state()
+    reduced_summary = reducer_state["rolling_summary"]
 
-@app.get("/state/{session_id}")
-def get_state(session_id: str):
-    """
-    API: возвращает сохранённое состояние по session_id
-    """
-    state = state_backend.load_state(session_id)
-    return state or {"error": "no state found"}
+    # 5. Finalizer
+    final_data = finalizer.build_final_summary(reducer_state)
+    final_summary = final_data["final_summary"]
+
+    # 6. FinalCritic
+    final_critic.validate(final_summary, final_data["final_open_items"])
+
+    # 7. Интеграции (моки)
+    calendar_payload = CalendarJiraAPI.to_calendar(final_summary, final_data["final_open_items"])
+    jira_payload = CalendarJiraAPI.to_jira(final_summary, final_data["final_open_items"])
+
+    # 8. Возврат
+    return PipelineResponse(
+        transcription=transcription,
+        chunks=chunks,
+        summaries=summaries,
+        reduced_summary=reduced_summary,
+        final_summary=final_summary,
+        calendar_payload=calendar_payload,
+        jira_payload=jira_payload,
+    )

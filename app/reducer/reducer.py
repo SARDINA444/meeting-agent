@@ -1,28 +1,51 @@
-from typing import List, Dict
+from dataclasses import dataclass, field
+from typing import List, Dict, Any
+
+
+@dataclass
+class ReducerState:
+    """
+    Состояние редьюсера: rolling_summary и список открытых пунктов.
+    """
+    rolling_summary: str = ""
+    open_items: List[str] = field(default_factory=list)
+
 
 class Reducer:
     def __init__(self):
-        self.rolling_summary: str = ""
-        self.open_items: List[str] = []
+        # У каждого экземпляра свой state
+        self.state = ReducerState()
 
-    def reduce(self, summary: str, critic_result: Dict) -> str:
+    def add_chunk_summary(self, chunk_summary: str, open_item: str = None) -> None:
         """
-        Обновляет rolling_summary и open_items
+        Добавляем новый summary чанка и (опционально) открытый пункт.
         """
-        # аккумулируем summary
-        if self.rolling_summary:
-            self.rolling_summary += " " + summary
+        if self.state.rolling_summary:
+            self.state.rolling_summary += " " + chunk_summary
         else:
-            self.rolling_summary = summary
+            self.state.rolling_summary = chunk_summary
 
-        # если critic вернул замечания — сохраняем как open_items
-        if not critic_result.get("valid", True):
-            self.open_items.extend(critic_result.get("issues", []))
+        if open_item:
+            self.state.open_items.append(open_item)
 
-        return self.rolling_summary
-
-    def get_state(self) -> Dict:
+    def get_state(self) -> Dict[str, Any]:
+        """
+        Получаем текущее состояние в виде словаря (для сохранения в Redis/Qdrant).
+        """
         return {
-            "rolling_summary": self.rolling_summary,
-            "open_items": self.open_items,
+            "rolling_summary": self.state.rolling_summary,
+            "open_items": self.state.open_items,
         }
+
+    def load_state(self, data: Dict[str, Any]) -> None:
+        """
+        Восстанавливаем состояние из словаря.
+        """
+        self.state.rolling_summary = data.get("rolling_summary", "")
+        self.state.open_items = data.get("open_items", [])
+
+    def reset(self) -> None:
+        """
+        Сбрасываем состояние.
+        """
+        self.state = ReducerState()

@@ -1,23 +1,29 @@
-from app.summarizer.summarizer import simple_summarizer, critic
-from app.reducer.reducer import Reducer
-from ..ingest.redis_backend import RedisBackend
+"""
+ASR Service — модуль для распознавания речи.
+На данный момент реализован как мок: вместо реального распознавания
+возвращает тестовый текст или содержимое файла.
+"""
 
-reducer = Reducer()
-state_backend = RedisBackend()
+from pathlib import Path
 
-def process_chunks(chunks: list[str], state_key="session1"):
-    for chunk in chunks:
-        # делаем summary для чанка
-        summary = simple_summarizer([chunk], max_len=100)
 
-        # проверяем Critic
-        critic_result = critic(summary)
+def transcribe_audio(audio_path: str) -> str:
+    """
+    Мок-функция распознавания речи.
+    В реальном проекте сюда подключается Yandex SpeechKit / OpenAI Whisper / Vosk и т.д.
 
-        # обновляем Reducer
-        rolling_summary = reducer.reduce(summary, critic_result)
+    :param audio_path: путь до аудиофайла
+    :return: текст транскрипции
+    """
+    path = Path(audio_path)
 
-        # сохраняем состояние
-        state_backend.save_state(state_key, reducer.get_state())
+    if not path.exists():
+        # Возвращаем заглушку, если файл отсутствует
+        return "Привет мир из пайплайна. Нужно сделать задачу в календарь и в Jira."
 
-    # итоговое состояние
-    return reducer.get_state()
+    try:
+        # Если файл есть, просто читаем как текстовый (для тестов удобно)
+        return path.read_text(encoding="utf-8")
+    except Exception:
+        # Если файл бинарный — возвращаем заглушку
+        return "Тестовая транскрипция из бинарного файла. Добавить задачу в Jira."
