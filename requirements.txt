@@ -16,5 +16,20 @@ redis==5.0.7
 # Qdrant (для интеграции, можно пока оставить закомментированным если ещё не используешь)
 qdrant-client==1.8.2
 
-
 transformers==4.55.3
+
+# --- LangChain ecosystem ---
+langchain==0.2.16
+langchain-core==0.2.38
+langchain-community==0.2.16
+
+# --- GigaChain packages ---
+gigachain==0.2.16
+gigachain-core==0.2.38.post2
+gigachain-community==0.2.16.post3
+
+# --- LangSmith (совместимая версия) ---
+langsmith>=0.1.112,<0.2.0
+
+# --- Доп. зависимости ---
+python-dotenv==1.0.1
