@@ -12,6 +12,11 @@ echo "GIGA_KEY=<ваш-api-ключ>" >> .env
 ```bash
 docker-compose up --build
 ```
+## Тест ручками
+Отправляем POST запрос на http://127.0.0.1:8000/process/
+В теле запроса передаём JSON вида {"chunks": [<чанк_1>, <чанк_2>, ...]}
+В ответ получим JSON вида {"final_summary": "Финальное саммари по всем чанкам"}
+
 ## Запуск уже созданных контейнеров
 
 ```bash
@@ -19,6 +24,4 @@ docker-compose up
 ```
 
 ## Тесты
-```bash
-docker-compose exec app pytest tests/test_pipeline.py -v
-```
+
