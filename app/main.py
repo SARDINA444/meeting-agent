@@ -5,6 +5,7 @@ from typing import List
 from app.summarizer.summarizer import Summarizer
 from app.critic.critic import Critic
 from app.reducer.reducer import Reducer
+from app.finalizer.finalizer import Finalizer
 from app.reducer.reducer_model import ReducerInput, CriticFeedback
 
 
@@ -13,6 +14,7 @@ app = FastAPI()
 summarizer = Summarizer()
 critic = Critic()
 reducer = Reducer()
+finalizer = Finalizer()
 
 
 class ChunksRequest(BaseModel):
@@ -51,9 +53,16 @@ async def process_chunks(data: ChunksRequest):
     # Склеиваем в общий итог
     combined_summary = "\n".join(final_summaries)
 
+    final_summary = await finalizer.run(combined_summary)
+    final_review = await critic.run(final_summary)
+    if final_review.get("score") != "confirmed":
+        reducer_input = ReducerInput(
+            original=combined_summary,
+            summary=final_summary,
+            feedback=CriticFeedback(**final_review)
+        )
+        final_summary = await reducer.run(reducer_input)
+
     return {
-        "final_summaries": final_summaries,   # итоговые саммари чанков
-        "combined_summary": combined_summary, # общий текст
-        "critics": critics,                   # результаты проверки критика
-        "reduced": reduced                    # какие саммари были исправлены
+        "final_summary": final_summary,
     }

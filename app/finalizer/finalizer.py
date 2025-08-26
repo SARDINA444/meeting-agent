@@ -1,72 +1,27 @@
-from typing import Dict, List
+from app.api.gigachat_api import GigaAgent
 
+FINALIZER_PROMPT = """
+Ты — финальный редактор отчётов по онлайн-встречам. 
+Тебе передан полный черновик (склеенные саммари реплик).
 
-class Finalizer:
-    """
-    Объединяет все промежуточные состояния (summary, open_items)
-    в финальный отчет.
-    """
+Задача:
+1. Преобразуй текст в цельный итоговый отчёт для руководителя. 
+2. Убери повторы и избыточные формулировки.
+3. Объедини близкие мысли в структурированные пункты, если это уместно.
+4. Сохрани фактическую точность — не добавляй ничего нового.
+5. Используй деловой стиль: чёткие формулировки, краткость.
+6. Если встречаются даты, имена, e-mail — оставь их без изменений.
 
+Формат вывода:
+Цельный отчёт в виде абзацев или маркированного списка.
+"""
+
+class Finalizer(GigaAgent):
     def __init__(self):
-        self.final_summary: str = ""
-        self.final_open_items: List[str] = []
+        super().__init__(FINALIZER_PROMPT)
 
-    def build_final_summary(self, reducer_state: Dict) -> Dict:
+    async def run(self, text: str) -> str:
         """
-        Формирует финальный отчет на основе состояния Reducer.
+        Получает весь combined_summary и возвращает финализированный текст.
         """
-        self.final_summary = reducer_state.get("rolling_summary", "")
-        self.final_open_items = reducer_state.get("open_items", [])
-
-        return {
-            "final_summary": self.final_summary,
-            "final_open_items": self.final_open_items,
-        }
-
-
-class FinalCritic:
-    """
-    Базовая финальная валидация результата.
-    Проверяем, что summary не пустое, а список задач имеет адекватный вид.
-    """
-
-    def validate(self, final_summary: str, final_open_items: List[str]) -> Dict:
-        errors = []
-
-        if not final_summary or len(final_summary.strip()) < 10:
-            errors.append("Final summary слишком короткий или пустой")
-
-        if any(len(item.strip()) == 0 for item in final_open_items):
-            errors.append("Есть пустые open items")
-
-        return {
-            "is_valid": len(errors) == 0,
-            "errors": errors,
-        }
-
-
-class Integrators:
-    """
-    Моки интеграций — формируем JSON-структуры для сторонних систем.
-    Например, Calendar и Jira.
-    """
-
-    @staticmethod
-    def to_calendar(final_summary: str, open_items: List[str]) -> Dict:
-        return {
-            "calendar_event": {
-                "title": "Project Meeting",
-                "description": final_summary,
-                "tasks": open_items,
-            }
-        }
-
-    @staticmethod
-    def to_jira(final_summary: str, open_items: List[str]) -> Dict:
-        return {
-            "jira_ticket": {
-                "summary": final_summary,
-                "open_items": open_items,
-                "priority": "Medium",
-            }
-        }
+        return await super().run(text)
