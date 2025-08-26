@@ -19,11 +19,11 @@ class Text(BaseModel):
     text: str
 
 
-async def request_to_giga(text: str, content: str) -> str:
+async def request_to_giga(text: str, system_prompt: str) -> str:
     """
     Асинхронный запрос к GigaChat API для пересказа текста.
     """
-    result = await giga.agenerate([[SystemMessage(content=content), HumanMessage(content=text)]])
+    result = await giga.agenerate([[SystemMessage(content=system_prompt), HumanMessage(content=text)]])
     return result.generations[0][0].text
 
 
