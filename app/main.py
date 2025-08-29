@@ -16,6 +16,9 @@ critic = Critic()
 reducer = Reducer()
 finalizer = Finalizer()
 
+# сколько предыдущих чанков брать в контекст
+CONTEXT_SIZE = 2
+
 
 class ChunksRequest(BaseModel):
     chunks: List[str]
@@ -24,18 +27,20 @@ class ChunksRequest(BaseModel):
 @app.post("/process/")
 async def process_chunks(data: ChunksRequest):
     final_summaries = []
-    critics = []
-    reduced = []
 
-    for chunk in data.chunks:
-        # Шаг 1. Саммари
-        summary = await summarizer.run(chunk)
+    for i, chunk in enumerate(data.chunks):
+        # берём контекст из предыдущих чанков
+        context = data.chunks[max(0, i - CONTEXT_SIZE): i]
+        context_text = "\n".join(context)
 
-        # Шаг 2. Проверка критиком
+        # передаём Summarizer текущий чанк + контекст
+        full_input = f"Контекст:\n{context_text}\n\nТекущий фрагмент:\n{chunk}" if context else chunk
+        summary = await summarizer.run(full_input)
+
+        # проверка критиком
         review = await critic.run(summary)
-        critics.append(review)
 
-        # Шаг 3. Если критик не подтвердил → исправляем через Reducer
+        # если нужно — исправляем через Reducer
         if review.get("score") != "confirmed":
             reducer_input = ReducerInput(
                 original=chunk,
@@ -43,17 +48,17 @@ async def process_chunks(data: ChunksRequest):
                 feedback=CriticFeedback(**review)
             )
             summary = await reducer.run(reducer_input)
-            reduced.append(summary)
-        else:
-            reduced.append(None)
 
-        # В финальный список идёт исправленное (или подтверждённое) summary
+        # в финальный список идёт summary (подтверждённое или исправленное)
         final_summaries.append(summary)
 
-    # Склеиваем в общий итог
+    # общий итог
     combined_summary = "\n".join(final_summaries)
 
+    # финализация
     final_summary = await finalizer.run(combined_summary)
+
+    # финальная проверка
     final_review = await critic.run(final_summary)
     if final_review.get("score") != "confirmed":
         reducer_input = ReducerInput(
