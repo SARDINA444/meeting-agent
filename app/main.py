@@ -7,7 +7,7 @@ from app.critic.critic import Critic
 from app.reducer.reducer import Reducer
 from app.finalizer.finalizer import Finalizer
 from app.reducer.reducer_model import ReducerInput, CriticFeedback
-
+from app.api.nats_handler import broker, PROGRESS_SUBJECT
 
 app = FastAPI()
 
@@ -16,7 +16,6 @@ critic = Critic()
 reducer = Reducer()
 finalizer = Finalizer()
 
-# сколько предыдущих чанков брать в контекст
 CONTEXT_SIZE = 2
 
 
@@ -24,23 +23,33 @@ class ChunksRequest(BaseModel):
     chunks: List[str]
 
 
+@app.on_event("startup")
+async def startup_event():
+    await broker.connect()
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await broker.close()
+
+
 @app.post("/process/")
 async def process_chunks(data: ChunksRequest):
     final_summaries = []
 
     for i, chunk in enumerate(data.chunks):
-        # берём контекст из предыдущих чанков
+        # берём контекст
         context = data.chunks[max(0, i - CONTEXT_SIZE): i]
         context_text = "\n".join(context)
-
-        # передаём Summarizer текущий чанк + контекст
         full_input = f"Контекст:\n{context_text}\n\nТекущий фрагмент:\n{chunk}" if context else chunk
+
+        # шаг 1: саммари
         summary = await summarizer.run(full_input)
 
-        # проверка критиком
+        # шаг 2: критик
         review = await critic.run(summary)
 
-        # если нужно — исправляем через Reducer
+        # шаг 3: если критик не подтвердил → Reducer
         if review.get("score") != "confirmed":
             reducer_input = ReducerInput(
                 original=chunk,
@@ -49,13 +58,16 @@ async def process_chunks(data: ChunksRequest):
             )
             summary = await reducer.run(reducer_input)
 
-        # в финальный список идёт summary (подтверждённое или исправленное)
+        # публикуем промежуточный результат в NATS
+        await broker.publish(
+            {"chunk_index": i, "summary": summary},
+            subject=PROGRESS_SUBJECT
+        )
+
         final_summaries.append(summary)
 
     # общий итог
     combined_summary = "\n".join(final_summaries)
-
-    # финализация
     final_summary = await finalizer.run(combined_summary)
 
     # финальная проверка
@@ -68,6 +80,4 @@ async def process_chunks(data: ChunksRequest):
         )
         final_summary = await reducer.run(reducer_input)
 
-    return {
-        "final_summary": final_summary,
-    }
+    return {"final_summary": final_summary}
