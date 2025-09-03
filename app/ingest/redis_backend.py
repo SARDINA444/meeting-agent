@@ -1,13 +1,18 @@
 import redis
-import json
+
 
 class RedisBackend:
-    def __init__(self, host="redis", port=6379, db=0):
-        self.r = redis.Redis(host=host, port=port, db=db, decode_responses=True)
+    def __init__(self, redis_url="redis://localhost:6379/0"):
+        self.redis = redis.Redis.from_url(redis_url, decode_responses=True)
 
-    def save_state(self, key: str, state: dict):
-        self.r.set(key, json.dumps(state))
+    def save_intermediate(self, process_id: str, step: int, summary: str):
+        key = f"process:{process_id}:step:{step}"
+        self.redis.set(key, summary)
 
-    def load_state(self, key: str):
-        data = self.r.get(key)
-        return json.loads(data) if data else None
+    def get_intermediate(self, process_id: str, step: int) -> str | None:
+        key = f"process:{process_id}:step:{step}"
+        return self.redis.get(key)
+
+    def list_intermediates(self, process_id: str) -> list[str]:
+        keys = self.redis.keys(f"process:{process_id}:step:*")
+        return [self.redis.get(k) for k in sorted(keys)]

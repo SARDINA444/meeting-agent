@@ -19,9 +19,12 @@ qdrant-client==1.8.2
 transformers==4.55.3
 
 # --- LangChain ecosystem ---
-langchain==0.2.16
-langchain-core==0.2.38
-langchain-community==0.2.16
+
+langchain>=0.3.0
+langchain-core>=0.3.0,<0.4.0
+langchain-community>=0.3.0
+langsmith>=0.1.0
+langchain-gigachat==0.3.12
 
 # --- GigaChain packages ---
 gigachain==0.2.16
