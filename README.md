@@ -1,9 +1,69 @@
 # Meeting Agent
+Схема работы сервиса
+```
+         Клиент (запрос к API /process/)
+                           │
+                           ▼
+                 ┌───────────────────┐
+                 │     FastAPI       │
+                 │   (main.py)       │
+                 └───────────────────┘
+                           │
+          ┌────────────────┴────────────────┐
+          ▼                                 ▼
+ ┌─────────────────┐              ┌─────────────────┐
+ │   Summarizer    │              │   Context Prep  │
+ │ (получает кусок │              │ (берёт 2 шага   │
+ │ текста)         │              │ из истории)     │
+ └─────────────────┘              └─────────────────┘
+          │
+          ▼
+ ┌─────────────────┐
+ │     Critic      │
+ │ (оценивает      │
+ │ summary)        │
+ └─────────────────┘
+          │
+   если "confirmed"
+          │
+          └─────► иначе Reducer (исправляет summary)
+                           │
+                           ▼
+          ┌────────────────────────────────┐
+          │ RedisBackend (intermediates)   │
+          │ process:{process_id}:step:{i}  │
+          └────────────────────────────────┘
+                           │
+                           ▼
+          ┌────────────────────────────────┐
+          │ NATS (progress events)         │
+          │ {process_id, chunk_index, ...} │
+          └────────────────────────────────┘
+                           │
+                           ▼
+     После всех кусков → Finalizer → Critic → Reducer
+                           │
+                           ▼
+       ┌────────────────────────────────────────┐
+       │    Embeddings (GigaChatEmbeddings)     │
+       │  → превращает final_summary в вектор   │
+       └────────────────────────────────────────┘
+                           │
+                           ▼
+       ┌────────────────────────────────────────┐
+       │ QdrantBackend (финальные summaries)    │
+       │ id = process_id, vector, payload       │
+       └────────────────────────────────────────┘
+                           │
+                           ▼
+           Клиент получает ответ:
+           { process_id, final_summary }
 
+```
 * meeting.in - тема для входного канала, сейчас ждёт чанки текста для обработки
 * meeting.out - тема для выходного канала, отправляет финальное summary
 * meeting.progress - тема для промежуточного summary
-* subscriber.py - подписчик на meeting.progress
+* subscriber.py - тестовый подписчик на meeting.progress
 
 ## Быстрый запуск
 
@@ -26,7 +86,7 @@ docker-compose up
 
 ## Тесты
 ```bash
-#docker-compose exec app pytest tests/test_nats_client.py -v
+docker-compose exec app pytest tests/ -v
 ```
 
 ## Тест ручками

@@ -39,4 +39,4 @@ python-dotenv==1.0.1
 
 faststream[nats]>=0.5.0
 
-pytest-asyncio
+pytest-asyncio==0.23.7
