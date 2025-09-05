@@ -1,0 +1,79 @@
+# ------------------------------
+# Core Python artifacts
+# ------------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual & local environments
+.env
+.env.*
+.venv/
+venv/
+ENV/
+env/
+.Python
+
+# Packaging & distribution
+*.egg-info/
+.eggs/
+*.egg
+build/
+dist/
+*.whl
+pip-wheel-metadata/
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# Type checking & linting caches
+.mypy_cache/
+ruff_cache/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Documentation builds
+/docs/_build/
+
+# Logs & misc runtime output
+*.log
+
+# ------------------------------
+# IDE / Editor settings
+# ------------------------------
+# VS Code
+.vscode/
+
+# PyCharm / JetBrains IDEs
+.idea/
+*.iml
+
+# Cursor IDE
+.cursor/
+
+# ------------------------------
+# macOS / OS-generated files
+# ------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+
+# Windows system files
+Thumbs.db
+desktop.ini
+
+# ------------------------------
+# Other common ignores
+# ------------------------------
+*.swp
+*.swo
+*~
+
