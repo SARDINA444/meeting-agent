@@ -11,7 +11,9 @@ key = os.getenv("GIGA_KEY")
 
 giga = GigaChat(
     credentials=key,
-    verify_ssl_certs=False
+    verify_ssl_certs=False,
+    model='GigaChat-2-Pro',
+    scope='GIGACHAT_API_B2B'
 )
 
 
