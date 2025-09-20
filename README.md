@@ -77,6 +77,10 @@ echo "GIGA_KEY=<ваш-api-ключ>" >> .env
 ```bash
 docker-compose up --build
 ```
+Отдельно пересобрать app при необходимости
+```bash
+docker compose build --no-cache app
+```
 
 ## Запуск уже созданных контейнеров
 

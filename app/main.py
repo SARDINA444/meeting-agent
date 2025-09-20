@@ -1,138 +1,132 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from typing import List
-import os
+import asyncio
 import uuid
+import json
+
+from app.api.broker import app, broker
+from app.api.config import settings
 
 from redis import asyncio as aioredis
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import VectorParams, Distance
 
 from langchain_gigachat.embeddings.gigachat import GigaChatEmbeddings
-
 from app.summarizer.summarizer import Summarizer
 from app.critic.critic import Critic
 from app.reducer.reducer import Reducer
 from app.finalizer.finalizer import Finalizer
 from app.reducer.reducer_model import ReducerInput, CriticFeedback
-from app.api.nats_handler import broker, PROGRESS_SUBJECT
 from app.ingest.compose_async import ComposeAsync
 
 
-app = FastAPI()
-
-# Константы
-GIGA_KEY = os.getenv("GIGA_KEY")
-REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
-QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
-COLLECTION_NAME = "summaries"
-VECTOR_SIZE = 1024
-CONTEXT_SIZE = 2
-
-# Глобальные клиенты
+# глобальные клиенты
 redis_client: aioredis.Redis = None
 qdrant_client: AsyncQdrantClient = None
 compose: ComposeAsync = None
+embeddings: GigaChatEmbeddings = None
 
 
-class ChunksRequest(BaseModel):
-    chunks: List[str]
+@app.on_startup
+async def startup():
+    global redis_client, qdrant_client, compose, embeddings
 
-
-@app.on_event("startup")
-async def startup_event():
-    global redis_client, qdrant_client, compose
-
-    # Redis
-    redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
+    redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
     await redis_client.ping()
 
-    # Qdrant
-    qdrant_client = AsyncQdrantClient(url=QDRANT_URL)
-
+    qdrant_client = AsyncQdrantClient(url=settings.qdrant_url)
     collections = await qdrant_client.get_collections()
-    if COLLECTION_NAME not in [c.name for c in collections.collections]:
+    if "summaries" not in [c.name for c in collections.collections]:
         await qdrant_client.create_collection(
-            collection_name=COLLECTION_NAME,
-            vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
+            collection_name="summaries",
+            vectors_config=VectorParams(size=1024, distance=Distance.COSINE),
         )
 
-    # Compose
-    compose = ComposeAsync(redis_client, qdrant_client, COLLECTION_NAME)
+    compose = ComposeAsync(redis_client, qdrant_client, "summaries")
+    embeddings = GigaChatEmbeddings(
+        credentials=settings.giga_key,
+        verify_ssl_certs=False,
+        scope="GIGACHAT_API_B2B"
+    )
 
-    # NATS
-    await broker.connect()
 
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    await broker.close()
+@app.on_shutdown
+async def shutdown():
     await redis_client.close()
     await qdrant_client.close()
 
 
-@app.post("/process/")
-async def process_chunks(data: ChunksRequest):
-    process_id = str(uuid.uuid4())
-    final_summaries = []
+@broker.subscriber(settings.nats_subject_in)
+async def handle_message(msg: dict):
+    """
+    msg = {
+        "file_id": "uuid",
+        "chunk_index": 3,
+        "total_chunks": 10,
+        "text": "текст чанка"
+    }
+    """
+    file_id = msg["file_id"]
+    chunk_index = msg["chunk_index"]
+    total_chunks = msg.get("total_chunks")
+    text = msg["text"]
+
+    redis_key = f"summaries:{file_id}"
 
     summarizer = Summarizer()
     critic = Critic()
     reducer = Reducer()
     finalizer = Finalizer()
 
-    embeddings = GigaChatEmbeddings(credentials=GIGA_KEY, verify_ssl_certs=False, scope="GIGACHAT_API_B2B")
+    # контекст: берём 2 предыдущих саммари из Redis
+    prev_summaries = await redis_client.lrange(redis_key, max(0, chunk_index - 2), chunk_index - 1)
+    context_text = "\n".join(prev_summaries) if prev_summaries else ""
+    full_input = f"Контекст:\n{context_text}\n\nТекущий фрагмент:\n{text}" if context_text else text
 
-    for i, chunk in enumerate(data.chunks):
-        # контекст
-        context = data.chunks[max(0, i - CONTEXT_SIZE): i]
-        context_text = "\n".join(context)
-        full_input = f"Контекст:\n{context_text}\n\nТекущий фрагмент:\n{chunk}" if context else chunk
+    # summarizer
+    summary = await summarizer.run(full_input)
 
-        # summarizer
-        summary = await summarizer.run(full_input)
-
-        # critic
-        review = await critic.run(summary)
-
-        # reducer при необходимости
-        if review.get("score") != "confirmed":
-            reducer_input = ReducerInput(
-                original=chunk,
-                summary=summary,
-                feedback=CriticFeedback(**review),
-            )
-            summary = await reducer.run(reducer_input)
-
-        # сохраняем промежуточное в Redis
-        await compose.save_intermediate(process_id, i, summary)
-
-        # паблишим прогресс в NATS
-        await broker.publish(
-            {"process_id": process_id, "chunk_index": i, "summary": summary},
-            subject=PROGRESS_SUBJECT,
-        )
-
-        final_summaries.append(summary)
-
-    # финализация
-    combined_summary = "\n".join(final_summaries)
-    final_summary = await finalizer.run(combined_summary)
-
-    # финальная проверка
-    final_review = await critic.run(final_summary)
-    if final_review.get("score") != "confirmed":
+    # critic
+    review = await critic.run(summary)
+    if review.get("score") != "confirmed":
         reducer_input = ReducerInput(
-            original=combined_summary,
-            summary=final_summary,
-            feedback=CriticFeedback(**final_review),
+            original=text,
+            summary=summary,
+            feedback=CriticFeedback(**review),
         )
-        final_summary = await reducer.run(reducer_input)
+        summary = await reducer.run(reducer_input)
 
-    # эмбеддинг финального summary
-    vector = await embeddings.aembed_query(final_summary)
+    # сохраняем промежуточное саммари
+    await redis_client.rpush(redis_key, summary)
 
-    # сохраняем финальный результат в Qdrant
-    await compose.save_final(process_id, final_summary, vector)
+    # публикуем промежуточное саммари
+    await broker.publish(
+        {"file_id": file_id, "chunk_index": chunk_index, "summary": summary},
+        subject=settings.nats_subject_intermediate,
+    )
 
-    return {"process_id": process_id, "final_summary": final_summary}
+    # если это последний чанк — собираем финальное саммари
+    if total_chunks is not None and chunk_index + 1 == total_chunks:
+        summaries = await redis_client.lrange(redis_key, 0, -1)
+        combined_summary = "\n".join(summaries)
+
+        final_summary = await finalizer.run(combined_summary)
+        final_review = await critic.run(final_summary)
+        if final_review.get("score") != "confirmed":
+            reducer_input = ReducerInput(
+                original=combined_summary,
+                summary=final_summary,
+                feedback=CriticFeedback(**final_review),
+            )
+            final_summary = await reducer.run(reducer_input)
+
+        # эмбеддинг финального summary
+        vector = await embeddings.aembed_query(final_summary)
+        await compose.save_final(file_id, final_summary, vector)
+
+        # публикуем финальное саммари
+        await broker.publish(
+            {"file_id": file_id, "final_summary": final_summary},
+            subject=settings.nats_subject_final,
+        )
+
+        # очищаем Redis для этого файла
+        await redis_client.delete(redis_key)
