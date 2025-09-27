@@ -77,7 +77,7 @@ async def handle_message(msg: dict):
 
     # контекст: берём 2 предыдущих саммари из Redis
     prev_summaries = await redis_client.lrange(redis_key, max(0, chunk_index - 2), chunk_index - 1)
-    context_text = "\n".join(prev_summaries) if prev_summaries else ""
+    context_text = "\n".join([s for s in prev_summaries if s]) if prev_summaries else ""
     full_input = f"Контекст:\n{context_text}\n\nТекущий фрагмент:\n{text}" if context_text else text
 
     # summarizer
@@ -93,8 +93,12 @@ async def handle_message(msg: dict):
         )
         summary = await reducer.run(reducer_input)
 
-    # сохраняем промежуточное саммари
-    await redis_client.rpush(redis_key, summary)
+    # сохраняем промежуточное саммари в Redis на позицию chunk_index
+    current_len = await redis_client.llen(redis_key)
+    if current_len <= chunk_index:
+        # "растягиваем" список пустыми строками до нужной позиции
+        await redis_client.rpush(redis_key, *[""] * (chunk_index - current_len + 1))
+    await redis_client.lset(redis_key, chunk_index, summary)
 
     # публикуем промежуточное саммари
     await broker.publish(
@@ -105,6 +109,8 @@ async def handle_message(msg: dict):
     # если это последний чанк — собираем финальное саммари
     if total_chunks is not None and chunk_index + 1 == total_chunks:
         summaries = await redis_client.lrange(redis_key, 0, -1)
+        # фильтруем пустые строки
+        summaries = [s for s in summaries if s]
         combined_summary = "\n".join(summaries)
 
         final_summary = await finalizer.run(combined_summary)
@@ -129,6 +135,8 @@ async def handle_message(msg: dict):
 
         # очищаем Redis для этого файла
         await redis_client.delete(redis_key)
+
+
 
 
 if __name__ == "__main__":
