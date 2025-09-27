@@ -17,7 +17,6 @@ from app.finalizer.finalizer import Finalizer
 from app.reducer.reducer_model import ReducerInput, CriticFeedback
 from app.ingest.compose_async import ComposeAsync
 
-
 # глобальные клиенты
 redis_client: aioredis.Redis = None
 qdrant_client: AsyncQdrantClient = None
@@ -130,3 +129,7 @@ async def handle_message(msg: dict):
 
         # очищаем Redis для этого файла
         await redis_client.delete(redis_key)
+
+
+if __name__ == "__main__":
+    asyncio.run(app.run())

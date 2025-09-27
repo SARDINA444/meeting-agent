@@ -13,6 +13,8 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - NATS_URL=nats://nats:4222
+    env_file:
+      - .env   # 👈 вот эта строка важна
 
   nats:
     image: nats:2.9-alpine

@@ -1,26 +1,19 @@
+# --- Infrastructure ---
 httpx==0.27.0
-pydantic>=2.7
-faststream[nats]>=0.5.0
-
-# Тесты
-pytest==8.3.1
-pytest-asyncio==0.23.7
-
-# NATS
-nats-py==2.6.0
-
-# Redis
-redis==5.0.7
-
-# Qdrant (для интеграции, можно пока оставить закомментированным если ещё не используешь)
-qdrant-client==1.8.2
+redis==5.0.8
+qdrant-client==1.11.0
+faststream[nats]==0.5.10
+nats-py==2.7.2
+pydantic==2.9.2
+pydantic-settings==2.5.2
+python-dotenv==1.0.1
+PyYAML==6.0.2
 
 # --- LangChain ecosystem ---
-
-langchain>=0.3.0
+langchain==0.3.3
 langchain-core>=0.3.0,<0.4.0
 langchain-community>=0.3.0
-langsmith>=0.1.0
+langsmith>=0.1.112,<0.2.0
 langchain-gigachat==0.3.12
 
 # --- GigaChain packages ---
@@ -28,11 +21,14 @@ gigachain==0.2.16
 gigachain-core==0.2.38.post2
 gigachain-community==0.2.16.post3
 
-# --- LangSmith (совместимая версия) ---
-langsmith>=0.1.112,<0.2.0
+# --- GigaChat client ---
+gigachat==0.1.42
 
-# --- Доп. зависимости ---
-python-dotenv==1.0.1
+# --- Utils ---
+tenacity==8.5.0
+numpy==1.26.4
+urllib3==2.2.3
 
-
-pytest-asyncio==0.23.7
+# --- Tests ---
+pytest==8.3.3
+pytest-asyncio==0.24.0
