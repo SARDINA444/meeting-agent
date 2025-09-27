@@ -70,7 +70,7 @@
 
 Создайте `.env` файл
 ```bash
-echo "GIGA_KEY=<ваш-api-ключ>" >> .env
+cp env.example .env
 ```
 
 Соберите и запустите сервис
